@@ -1,85 +1,141 @@
-# Deliverables: Standalone Config + DataFusion SQL Validator
+# Thalweg Config Validator — Deliverables
 
-## 1. Product Deliverable
+## Overview
 
-Build a standalone Rust **1.94** application that validates transform config and SQL, computes output schemas, and emits UI-ready tab state per output table.
+A standalone Rust 1.94 binary crate that:
+1. Parses a stream-sync `config.yaml` (or `.toml`) containing a `transforms.base` block and a `subTransforms` list.
+2. Validates each transform's SQL file against the inferred upstream schema using DataFusion SQL planning.
+3. Traces column lineage from the raw/meta seed registry through every transform in execution order.
+4. Emits a per-table schema summary with validation status and a UI model for tab/banner rendering.
 
-## 2. Functional Deliverables
+---
 
-1. **Config contract ingestion**
-   - Parse TOML config with explicit schema for `SubTransforms`
-   - Validate required fields, defaults, ordering, and virtual output flags
+## Module Breakdown
 
-2. **Rule validation layer**
-   - Enforce processing constraints (for example: no joins)
-   - Validate allowed filter/operator/function set
-   - Surface clear diagnostics with table/transform context
+| Module | Responsibility |
+|---|---|
+| `config_contract` | Deserialise the full config YAML/TOML; model `base`, `subTransforms`, `schemaHintColumns`, `jsonExpandColumns`, `cleanTable`, `clusterBy`, `destinationBackend` |
+| `seed_registry` | Owns the canonical raw/meta column table (all `_ssync_*` and `_raw_*` columns) with types and descriptions |
+| `sql_validator` | DataFusion parse + logical plan check per SQL file; reports syntax errors, missing-column refs, and disallowed constructs (joins, unsupported functions) |
+| `lineage_engine` | Propagates column provenance through the transform DAG; marks columns untraceable when origin cannot be resolved |
+| `schema_emitter` | Builds the final inferred schema per output table; generates CREATE DDL text |
+| `ui_model` | Produces the tab/banner/toggle view model consumed by the rendering layer |
+| `reporter` | Writes the summary JSON/table output to stdout or file |
 
-3. **SQL validation (DataFusion)**
-   - Parse SQL for syntax errors
-   - Build logical plans against known upstream schemas
-   - Detect unresolved/missing columns
+---
 
-4. **Schema inference**
-   - Infer final output schema per transform output
-   - Preserve column order and types
-   - Emit deterministic CREATE DDL text for each output
+## Config Contract
 
-5. **Lineage engine**
-   - Seed lineage from raw/default/meta columns
-   - Propagate lineage through each transform step
-   - Mark untraceable output columns as red/error
+### `transforms.base`
 
-6. **UI model output**
-   - One tab per output table, in transform order
-   - Banner logic:
-     - Green: all table checks pass
-     - Red: any blocking error exists
-     - Blue virtual banner: table is virtual (in addition to status)
-   - Dual view mode:
-     - Table Output view
-     - CREATE DDL view
+```yaml
+transforms:
+  base:
+    alias: base
+    sqlFile: /transforms/base_prep.sql
+    onError: warn
+    missingColumnMode: null_and_warn
+    schemaHintColumns:
+      - name: sparse_field_a
+        type: BIGINT
+      - name: sparse_field_b
+        type: STRING
+```
 
-7. **Summary dataset output**
-   - Consolidated final table schemas
-   - Per-table status and diagnostics
-   - Per-column lineage trace status
+**Validation rules for `base`:**
+- `missingColumnMode: null_and_warn` downgrades missing columns to WARNING + NULL synth; does NOT hard-fail.
+- `schemaHintColumns` entries are optional nullable patch columns; may safely be absent from upstream schema.
+- `onError: warn` downgrades validation failures to warnings in the output report.
 
-## 3. Technical Deliverables
+### `subTransforms` list
 
-1. Rust crate layout (standalone)
-   - `config_contract`
-   - `rule_engine`
-   - `sql_validator`
-   - `schema_inference`
-   - `lineage_engine`
-   - `ui_projection`
-   - `cli` (entrypoint and outputs)
+```yaml
+subTransforms:
+  - name: prepared
+    input: base
+    sqlFile: /transforms/prepared.sql
+    cleanTable: dev_catalog.silver.prepared_clean
+    clusterBy: ["event_ts", "entity_id"]
+    destinationBackend: zerobus
+    jsonExpandColumns:
+      - name: markets
+        fields: ["id", "name", "status"]
+```
 
-2. Stable output contracts
-   - JSON output schema for machine consumption
-   - Optional human-readable report rendering
+**Validation rules for `subTransforms`:**
+- Execution order is list order; a transform can only reference a `name` or `alias` already processed.
+- `input` must resolve to an already-validated output table or the `base` alias.
+- **No SQL JOINs are permitted.** Any JOIN clause is a hard validation error.
+- Allowed filter operators: `=`, `!=`, `<`, `>`, `<=`, `>=`, `IN`, `IS NULL`, `IS NOT NULL`, `LIKE`, `BETWEEN`, `AND`, `OR`.
+- `jsonExpandColumns` entries synthesise additional columns (`<col>_<field>` pattern) into the output schema.
+- A **virtual** table is any `subTransform` with no `cleanTable`/`destinationBackend` that is referenced as `input` by a downstream transform.
+- Non-virtual tables with `cleanTable` and `destinationBackend` are physical sink tables.
 
-3. Test assets
-   - Fixture configs and SQL samples (public-safe)
-   - Golden outputs for schema and diagnostics
+---
 
-## 4. Non-Functional Deliverables
+## Raw/Meta Seed Column Registry
 
-- Deterministic output for identical input
-- No runtime dependency on internal stream-sync crates
-- Clear error taxonomy (`syntax`, `rule`, `schema`, `lineage`)
-- Rustfmt/clippy clean
-- CI pipeline for build/test/lint
+All transforms inherit the following columns as valid lineage origins.
 
-## 5. Acceptance Criteria
+| Column | Type | Description |
+|---|---|---|
+| `_raw_payload` | STRING | Raw message payload |
+| `_raw_payload_bin` | BINARY | Binary raw payload |
+| `_ssync_source_topic` | STRING | Source topic name |
+| `_ssync_source_partition` | INT | Source partition index |
+| `_ssync_source_offset` | STRING | Source message position |
+| `_ssync_message_key` | STRING | Message key; NULL when unset |
+| `_ssync_producer` | STRING | Producer name; NULL for Kafka |
+| `_ssync_sequence_id` | BIGINT | Producer-assigned sequence id |
+| `_ssync_source_headers` | STRING | Headers/properties as JSON string |
+| `_ssync_record_id` | STRING | Deterministic per-record identity |
+| `_ssync_source_event_ts` | TIMESTAMP_NTZ | Broker/producer event time |
+| `_ssync_ingest_ts` | TIMESTAMP_NTZ | Wall-clock ingest time |
+| `_ssync_emit_ts` | TIMESTAMP_NTZ | Wall-clock write time at sink; NULL on raw lane |
 
-1. Inputs are TOML config + seed schemas only.
-2. SQL syntax failures are reported per transform.
-3. Missing column errors are reported with source context.
-4. Rule violations (including no-join policy) are reported.
-5. All output tables (including virtual) are represented as tabs.
-6. Banner states are correctly computed (green/red + blue virtual).
-7. Each tab supports both table and DDL view models.
-8. Untraceable columns are marked red at column level.
-9. A final summary set of expected output schemas is emitted.
+---
+
+## Column Lineage Rules
+
+1. Every output column must resolve to one of:
+   a. A raw/meta seed column (table above).
+   b. A `schemaHintColumn` from `base`.
+   c. An output column from a prior transform in execution order.
+   d. A DataFusion SQL expression entirely composed of traceable inputs.
+2. If a column cannot be traced → mark column **RED** in UI; table banner turns **RED**.
+3. Columns from `jsonExpandColumns` synthetic expansion are traceable iff the source JSON column is itself traceable.
+
+---
+
+## UI Model Contract
+
+### Tab / Banner Rules
+
+| Condition | Banner |
+|---|---|
+| All columns traceable, no SQL errors | Green |
+| Any SQL error or untraceable column | Red |
+| Table is virtual (no cleanTable/destinationBackend) | Blue "Virtual" banner shown in addition to green/red |
+
+### Per-Tab Toggle Views
+
+1. **Table Output View** — column grid: `column_name | data_type | nullable | lineage_status | origin_path`
+2. **CREATE DDL View** — generated `CREATE TABLE <name> (...)` from inferred schema.
+
+---
+
+## Acceptance Criteria
+
+- [ ] Parses full config YAML (base + subTransforms) without stream-sync runtime dependency.
+- [ ] Validates SQL files in transform execution order.
+- [ ] Enforces no-JOIN rule; syntax/missing-col errors surfaced with context.
+- [ ] `missingColumnMode: null_and_warn` downgrades to warning + NULL synth; does not hard-fail.
+- [ ] All raw/meta seed columns recognised as valid lineage origins.
+- [ ] `schemaHintColumns` accepted as nullable patch origins.
+- [ ] `jsonExpandColumns` synthetic columns propagated into downstream lineage.
+- [ ] Virtual tables identified correctly; blue banner rendered.
+- [ ] Green/red status banners reflect per-table validation health.
+- [ ] Table Output and CREATE DDL toggle views generated per tab.
+- [ ] Summary JSON report emitted for all output tables.
+- [ ] Unit + integration tests for: valid SQL, syntax failure, missing col, no-join violation, virtual table, lineage success/failure, DDL generation, multi-transform ordering.
+- [ ] Builds clean on Rust 1.94.
