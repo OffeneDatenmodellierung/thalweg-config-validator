@@ -1,103 +1,50 @@
-# Deployment Plan (Standalone Validator)
+# Thalweg Config Validator — Deployment Plan
 
-## Phase 0: Alignment and Contract Freeze
+## Phase 0 — Contract Freeze (Day 1)
 
-**Objective:** lock the config/rule contract before coding.
+- Extract config YAML structure from live stream-sync deployment.
+- Snapshot raw/meta seed column registry.
+- Export representative SQL transform files (sanitised, no production data).
+- Freeze these as test fixtures under `tests/fixtures/`.
 
-1. Capture `SubTransforms` TOML schema (fields, defaults, virtual semantics, order rules).
-2. Capture SQL policy:
-   - disallow joins
-   - define allowed filters/operators/functions
-   - define disallowed constructs
-3. Capture lineage seed policy:
-   - raw image defaults
-   - meta columns
-4. Publish a versioned contract file in repo (`contract/v1`).
+## Phase 1 — Scaffold & Core Crates (Days 2–5)
 
-**Exit criteria:** approved contract with examples and expected diagnostics.
+- `cargo new --bin thalweg-config-validator` (Rust 1.94 toolchain pinned in `rust-toolchain.toml`).
+- Add DataFusion SQL crates to `Cargo.toml`.
+- Implement `config_contract`, `seed_registry`, `sql_validator` modules.
+- Passing unit tests for parse and syntax validation.
 
-## Phase 1: Bootstrap Crate and CI
+## Phase 2 — Lineage Engine (Days 6–9)
 
-**Objective:** establish a reproducible Rust 1.94 baseline.
+- Implement `lineage_engine` with DAG traversal.
+- Wire `jsonExpandColumns` synthetic column expansion.
+- Implement `missingColumnMode: null_and_warn` downgrade logic.
+- Passing unit tests for lineage success, untraceable-column red-flagging.
 
-1. Initialize crate/workspace.
-2. Pin toolchain to Rust 1.94.
-3. Add CI:
-   - `cargo fmt --check`
-   - `cargo clippy -- -D warnings`
-   - `cargo test`
-4. Add fixture loading and snapshot/golden test harness.
+## Phase 3 — Schema Emitter & UI Model (Days 10–12)
 
-**Exit criteria:** empty-pipeline green on main branch.
+- Implement `schema_emitter` (final schema + DDL generation).
+- Implement `ui_model` (tab list, banner state, toggle view data).
+- Integration test: full config fixture → expected tab/banner JSON output.
 
-## Phase 2: Config + Rule Validation
+## Phase 4 — Reporter & CLI (Days 13–14)
 
-**Objective:** validate TOML shape and transform rules.
+- Implement `reporter` (stdout JSON + optional file output).
+- CLI: `thalweg-validate --config <path> --transforms-dir <path> [--output <path>]`.
+- End-to-end integration test with full fixture set.
 
-1. Implement config parsing and structural validation.
-2. Implement rule engine (no joins + allowlist constraints).
-3. Emit structured diagnostics with transform/table path metadata.
+## Phase 5 — Hardening & CI Gate (Days 15–17)
 
-**Exit criteria:** fixtures show expected pass/fail for rule-only scenarios.
+- `cargo fmt`, `cargo clippy --deny warnings`, `cargo audit`.
+- Add GitHub Actions workflow: build + test on Rust 1.94 stable.
+- Verify deterministic output for CI diff comparison.
 
-## Phase 3: SQL Planning + Schema Inference
+## Phase 6 — Documentation & Release (Day 18)
 
-**Objective:** verify SQL and infer output schemas.
+- Final README update with usage examples.
+- Tag `v0.1.0`.
+- Confirm no company-identifying data in repo.
 
-1. Parse SQL via DataFusion SQL parser.
-2. Build logical plans using prior-transform/seed schemas.
-3. Detect missing/unresolved columns.
-4. Emit inferred output schemas and generated CREATE DDL.
+## Rollback
 
-**Exit criteria:** golden tests confirm schema ordering/types and DDL output.
-
-## Phase 4: Column Lineage
-
-**Objective:** full column traceability to lower-level sources.
-
-1. Seed lineage graph from raw/default/meta columns.
-2. Propagate lineage through projections/aliases/expressions.
-3. Mark output columns untraceable when ancestry is unresolved.
-4. Elevate table status to red on blocking lineage failures.
-
-**Exit criteria:** lineage fixtures validate success and red-column failures.
-
-## Phase 5: UI Projection Contract
-
-**Objective:** provide app-ready tab state model.
-
-1. Produce one tab per output table in transform order.
-2. Add banner state calculation:
-   - green all-ok
-   - red any error
-   - blue virtual marker
-3. Add per-tab view toggles:
-   - table output view model
-   - DDL view model
-
-**Exit criteria:** deterministic JSON contract suitable for front-end tab rendering.
-
-## Phase 6: Release and Rollout
-
-**Objective:** deploy safely with observability and rollback.
-
-1. Tag release candidate (`v0.x`).
-2. Run integration pack on representative configs.
-3. Publish binaries/artifacts.
-4. Roll out by environment:
-   - dev
-   - test
-   - prod
-5. Define rollback trigger and procedure:
-   - validation false-positive spike
-   - runtime failure
-   - schema mismatch regression
-
-**Exit criteria:** production enablement with rollback readiness.
-
-## Runtime/Operational Controls
-
-- Strict mode toggle (fail on warnings vs fail on errors only)
-- Deterministic output checksum for CI diffing
-- Structured logs for diagnostics and table status counts
-- Contract version stamping in every output payload
+This is a standalone validator binary — no runtime coupling to stream-sync. Rollback = deleting or not running the binary. No migrations, no schema changes, no service dependencies.
