@@ -1,0 +1,42 @@
+[package]
+name = "thalweg-config-validator"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+
+[[bin]]
+name = "thalweg-validate"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "1"
+
+# Pinned to match stream-sync/rust's resolved datafusion version exactly
+# (confirmed via `cargo tree | grep datafusion` in that repo: 54.1.0), so this
+# validator plans SQL against the same expression/type surface as the
+# runtime engine it's validating configs for.
+datafusion = "54.1.0"
+sqlparser = "0.62"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# The real stream-sync UDF crate - registers the same pre-registered Rust
+# UDFs the runtime engine uses (get_json_object, avro decimal decode, sha2,
+# etc.), so this validator plans SQL against an identical function surface
+# rather than a hand-rolled stub.
+#
+# PATH NEEDS CONFIRMING: this assumes ssync-udf lives at
+# ../stream-sync/rust/ssync-udf relative to this repo (sibling checkouts
+# under the same parent directory, matching the paths seen in your build
+# output: .../GIT/streaming/thalweg-config-validator and
+# .../GIT/streaming/stream-sync). Adjust if the actual nesting differs -
+# e.g. if it's stream-sync/rust/crates/ssync-udf or similar.
+ssync-udf = { path = "../stream-sync/rust/crates/ssync-udf" }
+
+[dev-dependencies]
+pretty_assertions = "1"

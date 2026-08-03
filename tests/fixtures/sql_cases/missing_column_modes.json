@@ -1,0 +1,13 @@
+{
+  "hard_fail_variant": {
+    "missing_column_mode": null,
+    "expect": "error",
+    "expect_category": "schema"
+  },
+  "null_and_warn_variant": {
+    "missing_column_mode": "null_and_warn",
+    "expect": "warning",
+    "expect_category": "schema",
+    "expect_synth_column": { "name": "loyalty_tier", "value": null }
+  }
+}

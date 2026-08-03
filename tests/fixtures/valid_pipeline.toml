@@ -1,0 +1,90 @@
+[transform]
+alias    = "base"
+sql_file = "transforms/base_prep.sql"
+on_error = "warn"
+missing_column_mode = "null_and_warn"
+
+[[transform.schema_hint_columns]]
+name = "promo_code"
+type = "STRING"
+
+[[transform.schema_hint_columns]]
+name = "loyalty_points_earned"
+type = "BIGINT"
+
+[dq]
+mode = "quarantine"
+
+[[dq.drop_rule]]
+sql = "id IS NULL AND source_topic_str IS NULL"
+
+[[sink]]
+name                = "raw"
+receives            = "raw"
+type                = "zerobus"
+table               = "dev_catalog.bronze.orders_outbound"
+enabled             = true
+auto_evolve_schema  = false
+raw_payload_columns = ["_raw_payload"]
+
+[[sink]]
+name     = "silver-engine"
+receives = "rejected"
+type     = "postgres"
+enabled  = true
+
+[[sub_transform]]
+name     = "prepared"
+input    = "base"
+sql_file = "transforms/prepared.sql"
+
+[[sub_transform]]
+name        = "orders"
+input       = "prepared"
+sql_file    = "transforms/orders.sql"
+clean_table = "orders_clean"
+
+[[sub_transform]]
+name        = "order_status"
+input       = "prepared"
+sql_file    = "transforms/order_status.sql"
+clean_table = "order_status_clean"
+
+[[sub_transform]]
+name     = "items_virtual"
+input    = "prepared"
+sql_file = "transforms/items_explode.sql"
+json_expand_columns = [
+  { name = "items", fields = ["id", "sku", "quantity", "unit_price"] }
+]
+
+[[sub_transform]]
+name        = "items"
+input       = "items_virtual"
+sql_file    = "transforms/items.sql"
+clean_table = "items_clean"
+
+[[sub_transform]]
+name        = "accounts"
+input       = "prepared"
+sql_file    = "transforms/accounts.sql"
+clean_table = "accounts_clean"
+json_expand_columns = [
+  { name = "accounts", fields = ["id", "tier", "region"] }
+]
+
+[[sub_transform]]
+name        = "extras"
+input       = "prepared"
+sql_file    = "transforms/extras.sql"
+clean_table = "extras_clean"
+
+[batch]
+max_wait_ms  = 100
+max_records  = 1000
+max_bytes    = 10485760
+
+[dlq]
+enabled     = true
+schema_name = "public"
+table_name  = "_ssync_dlq"

@@ -1,0 +1,78 @@
+transform:
+  alias: base
+  sqlFile: transforms/base_prep.sql
+  onError: warn
+  missingColumnMode: null_and_warn
+  schemaHintColumns:
+    - name: promo_code
+      type: STRING
+    - name: loyalty_points_earned
+      type: BIGINT
+
+dq:
+  mode: quarantine
+  dropRule:
+    - sql: "id IS NULL AND source_topic_str IS NULL"
+
+sink:
+  - name: raw
+    receives: raw
+    type: zerobus
+    table: dev_catalog.bronze.orders_outbound
+    enabled: true
+    autoEvolveSchema: false
+    rawPayloadColumns: ["_raw_payload"]
+  - name: silver-engine
+    receives: rejected
+    type: postgres
+    enabled: true
+
+subTransforms:
+  - name: prepared
+    input: base
+    sqlFile: transforms/prepared.sql
+
+  - name: orders
+    input: prepared
+    sqlFile: transforms/orders.sql
+    cleanTable: orders_clean
+
+  - name: order_status
+    input: prepared
+    sqlFile: transforms/order_status.sql
+    cleanTable: order_status_clean
+
+  - name: items_virtual
+    input: prepared
+    sqlFile: transforms/items_explode.sql
+    jsonExpandColumns:
+      - name: items
+        fields: ["id", "sku", "quantity", "unit_price"]
+
+  - name: items
+    input: items_virtual
+    sqlFile: transforms/items.sql
+    cleanTable: items_clean
+
+  - name: accounts
+    input: prepared
+    sqlFile: transforms/accounts.sql
+    cleanTable: accounts_clean
+    jsonExpandColumns:
+      - name: accounts
+        fields: ["id", "tier", "region"]
+
+  - name: extras
+    input: prepared
+    sqlFile: transforms/extras.sql
+    cleanTable: extras_clean
+
+batch:
+  maxWaitMs: 100
+  maxRecords: 1000
+  maxBytes: 10485760
+
+dlq:
+  enabled: true
+  schemaName: public
+  tableName: _ssync_dlq

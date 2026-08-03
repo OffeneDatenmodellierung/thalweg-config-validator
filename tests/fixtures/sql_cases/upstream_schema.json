@@ -1,0 +1,17 @@
+{
+  "prepared": [
+    { "name": "id", "type": "Utf8", "nullable": false },
+    { "name": "customer_id", "type": "Utf8", "nullable": true },
+    { "name": "order_total", "type": "Float64", "nullable": true },
+    { "name": "promo_code", "type": "Utf8", "nullable": true },
+    { "name": "status", "type": "Utf8", "nullable": true },
+    { "name": "source_feed", "type": "Utf8", "nullable": true },
+    { "name": "_ssync_ingest_ts", "type": "Timestamp(Nanosecond, None)", "nullable": true },
+    { "name": "_ssync_record_id", "type": "Utf8", "nullable": true }
+  ],
+  "accounts": [
+    { "name": "order_id", "type": "Utf8", "nullable": false },
+    { "name": "account_id", "type": "Utf8", "nullable": true },
+    { "name": "tier", "type": "Utf8", "nullable": true }
+  ]
+}
