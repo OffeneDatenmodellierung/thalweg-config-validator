@@ -417,15 +417,15 @@ Pipeline validation: GREEN
 
 Pipeline-level lints:
   - [warning/arrow-i32-fanout-risk] batch.maxRecords=3000 is above the
-    1177-record threshold at which a batch of upstream-safe Event State
-    refresh messages can overflow Arrow's i32 offset ceiling
-    post-jsonExpandColumns.
-    Arithmetic: post-explode selections column bytes = input_rows ×
-    selections_per_record × 285 B. At upstream-safe 6400
+    1177-record threshold at which a batch of upstream-compliant records
+    can overflow Arrow's i32 offset ceiling post-jsonExpandColumns.
+    Arithmetic: post-explode column bytes = input_rows ×
+    selections_per_record × 285 B. At the upstream-safe ceiling of 6400
     selections/record, overflow starts at N > 2^31 / (6400 × 285) = 1177.
-    Framework issue: stream-sync #367 (explode_json_column emits Utf8/i32
-    offsets — fix is LargeStringArray/i64 or post-explode chunking).
-    Recommended cap until fix ships: maxRecords ≤ 1177.
+    Underlying runtime issue: the stream-sync `explode_json_column`
+    implementation emits Utf8 arrays with i32 offsets; the durable fix
+    is LargeStringArray/i64 offsets or post-explode chunking.
+    Recommended cap until that ships: maxRecords ≤ 1177.
     Explode nodes: [markets_virtual].
     related nodes: markets_virtual
 
@@ -452,9 +452,9 @@ Pipeline-level lints:
 
 **Note on severity:** the lint is a `warning`, not an `error`. The
 config is legitimate at deploy time; the finding is a preflight
-reminder that a known framework bug (stream-sync #367) will bite this
-config's traffic profile under replay bursts. `overall_status` stays
+reminder that a known bug in the downstream runtime will bite this
+config's traffic profile under bursty replay. `overall_status` stays
 `green` and the CLI exits 0 — so CI/CD gates keep passing while the
-finding is surfaced to reviewers. When the framework fix ships and the
-lint is no longer relevant, remove it (or gate it on a `stream-sync`
-version constraint) rather than escalating to `error`.
+finding is surfaced to reviewers. When the underlying runtime fix
+ships and the lint is no longer relevant, remove it (or gate it on a
+runtime version constraint) rather than escalating to `error`.

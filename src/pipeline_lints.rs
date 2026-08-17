@@ -26,11 +26,11 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LintId {
-    /// `batch.maxRecords` set high enough that a batch of upstream-safe
-    /// records (per Event State / AWS Keyspaces publisher contract) can
-    /// build a post-`jsonExpandColumns` Arrow `StringArray` that exceeds
-    /// the i32 offset ceiling (`i32::MAX` ≈ 2.147 GB), causing an
-    /// unrecoverable OOM death spiral. Reference: stream-sync #367.
+    /// `batch.maxRecords` set high enough that a batch of
+    /// upstream-compliant records can build a post-`jsonExpandColumns`
+    /// Arrow `StringArray` that exceeds the i32 offset ceiling
+    /// (`i32::MAX` ≈ 2.147 GB), causing an unrecoverable OOM death
+    /// spiral in the downstream stream-sync runtime.
     ArrowI32FanoutRisk,
 }
 
@@ -73,35 +73,44 @@ impl PipelineLintReport {
 // Arrow i32 fanout-overflow lint
 // ---------------------------------------------------------------------------
 
-/// Upstream publisher contract (Event State → AWS Keyspaces) caps refresh
-/// messages at ≤6400 selections/event under the "safe" band. At ~285 B per
-/// selection uncompressed, the post-explode selections column bytes for a
-/// batch of N max-safe records is:
+/// Fanout arithmetic for the JSON-explode overflow class.
+///
+/// Assumes an upstream publisher contract that caps the size of nested
+/// arrays ("selections per record", using the terminology of the market
+/// this validator was first authored against — substitute your own domain
+/// noun freely). Let:
+///
+/// * `S` = documented maximum selections per record for a compliant
+///   upstream publisher.
+/// * `B` = uncompressed byte size of a single selection.
+///
+/// Then the post-explode Utf8 column bytes for a batch of `N` records is
+/// approximately:
 ///
 /// ```text
-///   N × 6400 × 285 B
+///   N × S × B
 /// ```
 ///
 /// which reaches Arrow's i32 offset ceiling (`i32::MAX` ≈ 2^31 - 1) at
-/// N > `2^31 / (6400 × 285)` ≈ **1177 records**. This threshold is what
-/// stream-sync #367 was filed against, and what the trading-dm-inbound
-/// PR #300 sizing cap (`maxRecords=500`) sits comfortably below.
+/// `N > 2^31 / (S × B)`. With the defaults below (`S = 6400`, `B = 285`)
+/// this is **1177 records** — anything above that can overflow under
+/// fully-compliant upstream traffic, with no downstream mitigation
+/// available at config-review time.
 ///
-/// Kept as an associated const on a sentinel type rather than a bare
-/// constant so future adjustments (e.g. if Event State revises the
-/// selections-per-event ceiling) can carry a nested const with the
-/// derivation intact.
+/// The constants below reflect one real-world upstream contract; adjust
+/// them (and re-run the tests) if your pipeline's publishers document a
+/// different ceiling. The derivation itself is invariant.
 pub struct ArrowI32Overflow;
 
 impl ArrowI32Overflow {
-    /// Event State "safe" band ceiling: max selections/event a compliant
+    /// Documented maximum selections per record under the upstream
+    /// publisher's "safe" band — i.e. the largest fanout a compliant
     /// publisher will emit. Used directly to derive the operative
     /// overflow threshold below.
     pub const UPSTREAM_SAFE_SELECTIONS_PER_RECORD: u64 = 6_400;
 
-    /// Per-selection uncompressed byte size documented by the upstream
-    /// publisher guidelines. Same 285 B assumption used to derive the
-    /// Event State thresholds themselves.
+    /// Uncompressed byte size of a single selection, per the upstream
+    /// publisher guidelines used to derive the threshold.
     pub const SELECTION_BYTES: u64 = 285;
 
     /// Arrow's i32 offset ceiling for `Utf8` `StringArray`. Anything at or
@@ -109,11 +118,11 @@ impl ArrowI32Overflow {
     pub const I32_STRINGARRAY_CEILING: u64 = i32::MAX as u64;
 
     /// The batch-size threshold above which a batch of upstream-*safe*
-    /// records — i.e. traffic that respects the Event State guideline in
-    /// full — can still overflow the exploded selections column. This is
-    /// the operative warning threshold: batches larger than this can OOM
-    /// the pod without any upstream contract violation, and no benign
-    /// traffic mix saves them.
+    /// records — i.e. traffic that respects the upstream guideline in
+    /// full — can still overflow the exploded column. This is the
+    /// operative warning threshold: batches larger than this can OOM the
+    /// downstream runtime without any upstream contract violation, and no
+    /// benign traffic mix saves them.
     ///
     /// A hypothetical "escalate to Error at some larger N" would need a
     /// second cliff in the arithmetic to be honest — there isn't one.
@@ -164,14 +173,15 @@ fn check_arrow_i32_fanout_risk(
 
     let message = format!(
         "batch.maxRecords={n} is above the {safe}-record threshold at which a batch of \
-         upstream-safe Event State refresh messages can overflow Arrow's i32 offset \
-         ceiling post-jsonExpandColumns. \
+         upstream-compliant records can overflow Arrow's i32 offset ceiling \
+         post-jsonExpandColumns. \
          \n\
-         Arithmetic: post-explode selections column bytes = input_rows × selections_per_record × 285 B. \
-         At upstream-safe {sel_safe} selections/record, overflow starts at \
+         Arithmetic: post-explode column bytes = input_rows × selections_per_record × 285 B. \
+         At the upstream-safe ceiling of {sel_safe} selections/record, overflow starts at \
          N > 2^31 / ({sel_safe} × 285) = {safe}. \
-         Framework issue: stream-sync #367 (explode_json_column emits Utf8/i32 offsets — fix is \
-         LargeStringArray/i64 or post-explode chunking). Recommended cap until fix ships: \
+         Underlying runtime issue: the stream-sync `explode_json_column` implementation \
+         emits Utf8 arrays with i32 offsets; the durable fix is LargeStringArray/i64 \
+         offsets or post-explode chunking. Recommended cap until that ships: \
          maxRecords ≤ {safe}. \
          Explode nodes: [{nodes}].",
         nodes = related.join(", "),
@@ -264,14 +274,14 @@ mod tests {
             ArrowI32Overflow::SAFE_OVERFLOW_THRESHOLD_RECORDS,
             (i32::MAX as u64) / (6_400 * 285)
         );
-        // Real-world anchor: the trading-dm PR #300 cap (500 records) must
-        // sit comfortably below the safe threshold. If someone raises the
+        // Anchor: a conservative deployed cap (500 records) must sit
+        // comfortably below the safe threshold. If someone raises the
         // constants without thinking, this catches it.
         // (`const { assert!(..) }` blocks per clippy — both sides are const,
         // and the compile-time form runs at build time rather than test time.)
         const _: () = assert!(500 < ArrowI32Overflow::SAFE_OVERFLOW_THRESHOLD_RECORDS);
-        // Second real-world anchor: the pre-cap trading-dm-nxt value
-        // (3000) must be ABOVE the threshold (it fired the incident).
+        // Second anchor: a value that has historically triggered the
+        // overflow (3000 records) must be ABOVE the threshold.
         const _: () = assert!(3_000 > ArrowI32Overflow::SAFE_OVERFLOW_THRESHOLD_RECORDS);
     }
 
@@ -293,7 +303,7 @@ mod tests {
 
     #[test]
     fn explode_with_conservative_max_records_stays_silent() {
-        // maxRecords=500 is the trading-dm-inbound PR #300 shipped value.
+        // maxRecords=500 is a conservative deployed value known to work.
         // It must NOT fire the warning — this is the honest floor.
         let config = base_config(
             500,
@@ -344,9 +354,10 @@ mod tests {
 
     #[test]
     fn explode_above_safe_threshold_warns_and_names_the_explode_node() {
-        // The trading-dm-inbound pre-#300 pathological value (nxt=3000).
-        // Should warn, and the warning should name the sub_transform that
-        // does the JSON explode so operators can trace it.
+        // A pathological value (3000) historically observed to trigger
+        // the overflow. Should warn, and the warning should name the
+        // sub_transform that does the JSON explode so operators can
+        // trace it.
         let config = base_config(
             3_000,
             vec![
@@ -374,9 +385,9 @@ mod tests {
     }
 
     #[test]
-    fn same_warning_fires_for_pre_cap_prd_value() {
-        // trading-dm-inbound prd pre-#300 value (6000). Well above the
-        // threshold — must warn just like nxt did.
+    fn same_warning_fires_for_higher_pre_cap_value() {
+        // A second historically-deployed pathological value (6000).
+        // Well above the threshold — must warn just like 3000 did.
         let config = base_config(
             6_000,
             vec![tf(
@@ -392,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn message_carries_arithmetic_and_framework_issue_reference() {
+    fn message_carries_arithmetic_and_runtime_reference() {
         // The whole point of this lint is to explain the failure mode
         // *and* point at the durable fix. Losing either half in a future
         // refactor would silently degrade its usefulness — regress on
@@ -409,12 +420,12 @@ mod tests {
         let report = run_pipeline_lints(&config);
         let msg = &report.findings[0].message;
         assert!(
-            msg.contains("stream-sync #367"),
-            "missing framework issue reference: {msg}"
+            msg.contains("explode_json_column"),
+            "missing runtime symbol reference: {msg}"
         );
         assert!(
-            msg.contains("Event State"),
-            "missing upstream contract reference: {msg}"
+            msg.contains("upstream"),
+            "missing upstream-contract framing: {msg}"
         );
         assert!(msg.contains("285 B"), "missing arithmetic constant: {msg}");
         assert!(
