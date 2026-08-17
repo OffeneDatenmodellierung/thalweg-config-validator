@@ -47,10 +47,7 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     pub fn is_valid(&self) -> bool {
-        !self
-            .findings
-            .iter()
-            .any(|f| f.severity == Severity::Error)
+        !self.findings.iter().any(|f| f.severity == Severity::Error)
     }
 }
 
@@ -102,7 +99,10 @@ fn tracing_unused_type_warning(_raw: &str) {
     // permissive default instead of blocking validation entirely.
 }
 
-fn register_tables(ctx: &SessionContext, tables: &[UpstreamTable]) -> Result<(), SqlValidatorError> {
+fn register_tables(
+    ctx: &SessionContext,
+    tables: &[UpstreamTable],
+) -> Result<(), SqlValidatorError> {
     for t in tables {
         let mem_table = MemTable::try_new(t.schema.clone(), vec![vec![]])
             .map_err(|e| SqlValidatorError::SchemaSetup(e.to_string()))?;
@@ -336,7 +336,9 @@ mod tests {
     #[tokio::test]
     async fn valid_simple_sql_passes_clean() {
         let sql = std::fs::read_to_string(fixtures_dir().join("valid_simple.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(result.is_valid(), "findings: {:?}", result.findings);
         assert!(result.plan.is_some());
     }
@@ -344,9 +346,10 @@ mod tests {
     #[tokio::test]
     async fn wildcard_select_is_hard_error_caught_pre_plan() {
         let sql = std::fs::read_to_string(fixtures_dir().join("wildcard_violation.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
-            .await
-            .unwrap();
+        let result =
+            validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
+                .await
+                .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Rule);
         assert_eq!(result.findings[0].severity, Severity::Error);
@@ -356,9 +359,10 @@ mod tests {
     #[tokio::test]
     async fn join_is_hard_error_regardless_of_missing_column_mode() {
         let sql = std::fs::read_to_string(fixtures_dir().join("join_violation.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
-            .await
-            .unwrap();
+        let result =
+            validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
+                .await
+                .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Rule);
         assert_eq!(result.findings[0].severity, Severity::Error);
@@ -367,7 +371,9 @@ mod tests {
     #[tokio::test]
     async fn syntax_error_is_hard_error() {
         let sql = std::fs::read_to_string(fixtures_dir().join("syntax_error.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Syntax);
     }
@@ -375,7 +381,9 @@ mod tests {
     #[tokio::test]
     async fn missing_column_hard_fails_without_null_and_warn_mode() {
         let sql = std::fs::read_to_string(fixtures_dir().join("missing_column_ref.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Schema);
         assert_eq!(result.findings[0].severity, Severity::Error);
@@ -384,9 +392,10 @@ mod tests {
     #[tokio::test]
     async fn missing_column_downgrades_to_warning_under_null_and_warn_mode() {
         let sql = std::fs::read_to_string(fixtures_dir().join("missing_column_ref.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
-            .await
-            .unwrap();
+        let result =
+            validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
+                .await
+                .unwrap();
         // Not a hard failure under this mode.
         assert!(result.is_valid());
         assert_eq!(result.findings[0].severity, Severity::Warning);
@@ -400,7 +409,9 @@ mod tests {
         // lineage_engine's job (Phase 2). Confirms this case is NOT
         // misclassified as a sql_validator error.
         let sql = std::fs::read_to_string(fixtures_dir().join("untraceable_column.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(result.is_valid(), "findings: {:?}", result.findings);
         assert!(result.plan.is_some());
     }

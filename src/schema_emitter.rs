@@ -49,8 +49,8 @@ pub fn emit_ddl(node: &LineageNode) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::datatypes::{Field, Schema};
     use crate::lineage_engine::Banner;
+    use datafusion::arrow::datatypes::{Field, Schema};
     use std::sync::Arc;
 
     #[test]
