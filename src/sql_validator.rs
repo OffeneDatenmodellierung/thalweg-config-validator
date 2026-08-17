@@ -160,7 +160,7 @@ fn register_stream_sync_udfs(ctx: &SessionContext) {
 /// afterward, so this check cannot happen post-plan the way the JOIN check
 /// does. Also checks inside WITH-clause CTE bodies, not just the outermost
 /// query - real transforms use CTEs for BINARY->VARCHAR staging (per the
-/// gpd_base_prep.sql pattern), so a wildcard hidden inside a CTE needs to be
+/// base_prep.sql pattern), so a wildcard hidden inside a CTE needs to be
 /// caught too. If sqlparser itself fails to parse the SQL, this returns
 /// false and lets DataFusion's own planner surface the real syntax error
 /// instead - don't want a parser disagreement between sqlparser and

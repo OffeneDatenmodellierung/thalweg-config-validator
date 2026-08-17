@@ -31,7 +31,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 /// Real configs express `sqlFile` as an absolute container-mount path (e.g.
-/// `/transforms/gpd_base_prep.sql`, matching a ConfigMap mount at
+/// `/transforms/base_prep.sql`, matching a ConfigMap mount at
 /// `/transforms`), not a path relative to any host directory. `Path::join`
 /// treats an absolute second argument as replacing the base entirely rather
 /// than appending to it - so joining `--transforms-dir` with an absolute
@@ -466,8 +466,8 @@ mod tests {
     fn resolve_sql_path_uses_basename_for_absolute_container_paths() {
         let dir = Path::new("/host/transforms");
         assert_eq!(
-            resolve_sql_path(dir, "/transforms/gpd_base_prep.sql"),
-            Path::new("/host/transforms/gpd_base_prep.sql")
+            resolve_sql_path(dir, "/transforms/base_prep.sql"),
+            Path::new("/host/transforms/base_prep.sql")
         );
     }
 
@@ -475,8 +475,8 @@ mod tests {
     fn resolve_sql_path_joins_relative_paths_normally() {
         let dir = Path::new("/host/transforms");
         assert_eq!(
-            resolve_sql_path(dir, "gpd_base_prep.sql"),
-            Path::new("/host/transforms/gpd_base_prep.sql")
+            resolve_sql_path(dir, "base_prep.sql"),
+            Path::new("/host/transforms/base_prep.sql")
         );
     }
 
