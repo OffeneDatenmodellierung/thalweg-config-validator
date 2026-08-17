@@ -1,6 +1,6 @@
 # thalweg-config-validator
 
-A standalone Rust 1.94 binary crate for validating stream-sync transform configurations. It parses a `config.yaml` (or `.toml`) containing a `transforms.base` block and a `subTransforms` list, then validates each transform's SQL file against the inferred upstream schema using DataFusion SQL planning. The tool enforces structural rules such as no-JOIN constraints, resolves `missingColumnMode` downgrade behaviour, and expands `jsonExpandColumns` synthetic columns into the output schema.
+A standalone Rust 1.94 binary crate for validating streaming-pipeline transform configurations. It parses a `config.yaml` (or `.toml`) containing a `transforms.base` block and a `subTransforms` list, then validates each transform's SQL file against the inferred upstream schema using DataFusion SQL planning. The tool enforces structural rules such as no-JOIN constraints, resolves `missingColumnMode` downgrade behaviour, and expands `jsonExpandColumns` synthetic columns into the output schema.
 
 Column lineage is traced from a canonical raw/meta seed registry (all `_ssync_*` and `_raw_*` columns) through every transform in execution order. Each output column is resolved to a seed origin, a `schemaHintColumn` patch, or a prior transform's output — any column that cannot be traced is flagged as untraceable. Virtual transforms (those with no `cleanTable`/`destinationBackend` referenced as input by downstream transforms) are identified and labelled separately.
 

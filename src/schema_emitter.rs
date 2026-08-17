@@ -1,10 +1,10 @@
 //! Produces a human/DDL-ish rendering of each real (non-virtual, valid)
-//! table's inferred schema. Deliberately NOT tied to a specific SQL dialect
-//! (Postgres vs Delta/zerobus) - per the v1 scope decision, sink-based
-//! engine resolution is out of scope, so this emits a generic, descriptive
-//! DDL rather than a guaranteed-runnable one for either backend. Revisit
-//! once/if per-table engine resolution (option b from the earlier scope
-//! discussion) is wanted.
+//! table's inferred schema. Deliberately NOT tied to a specific SQL
+//! dialect (Postgres vs a Delta-backed sink) - per the v1 scope
+//! decision, sink-based engine resolution is out of scope, so this
+//! emits a generic, descriptive DDL rather than a guaranteed-runnable
+//! one for either backend. Revisit once/if per-table engine resolution
+//! (option b from the earlier scope discussion) is wanted.
 
 use crate::lineage_engine::LineageNode;
 use datafusion::arrow::datatypes::DataType;

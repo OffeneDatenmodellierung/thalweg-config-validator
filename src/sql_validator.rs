@@ -79,7 +79,7 @@ pub fn parse_arrow_type(raw: &str) -> DataType {
         "Int64" => DataType::Int64,
         "Float64" => DataType::Float64,
         "Timestamp(Nanosecond, None)" => DataType::Timestamp(TimeUnit::Nanosecond, None),
-        // schema_hint_columns uses these Databricks-ish type names directly.
+        // schema_hint_columns uses these SQL-ish type names directly.
         "STRING" => DataType::Utf8,
         "BIGINT" => DataType::Int64,
         "INT" => DataType::Int32,
@@ -140,18 +140,17 @@ fn classify_plan_error(message: &str) -> Category {
     }
 }
 
-/// Registers the real stream-sync UDFs (get_json_object, avro decimal
-/// decode, sha2, etc.) via ssync-udf, so validation plans SQL against the
-/// identical function surface the runtime engine exposes - not a
-/// hand-rolled approximation of it.
+/// Registers the runtime's real UDFs (get_json_object, avro decimal
+/// decode, sha2, etc.) via the runtime's UDF crate, so validation plans
+/// SQL against the identical function surface the runtime engine
+/// exposes - not a hand-rolled approximation of it.
 ///
 /// `register_local_udfs` takes an optional salt (only consumed by the
-/// `crypto` feature's salted-hash UDF, which isn't enabled by ssync-udf's
-/// default features) - `None` here since validation never executes these
-/// functions anyway, only plans against them.
-fn register_stream_sync_udfs(ctx: &SessionContext) {
-    ssync_udf::register_local_udfs(ctx, None)
-        .expect("registering stream-sync UDFs should never fail");
+/// `crypto` feature's salted-hash UDF, which isn't enabled by the UDF
+/// crate's default features) - `None` here since validation never
+/// executes these functions anyway, only plans against them.
+fn register_runtime_udfs(ctx: &SessionContext) {
+    ssync_udf::register_local_udfs(ctx, None).expect("registering runtime UDFs should never fail");
 }
 
 /// Detects `SELECT *` / `SELECT t.*` via the raw sqlparser AST, BEFORE
@@ -226,7 +225,7 @@ pub async fn validate_transform_sql(
     }
 
     let ctx = SessionContext::new();
-    register_stream_sync_udfs(&ctx);
+    register_runtime_udfs(&ctx);
     register_tables(&ctx, upstream_tables)?;
 
     match ctx.sql(sql).await {
@@ -238,7 +237,7 @@ pub async fn validate_transform_sql(
                     findings: vec![Finding {
                         severity: Severity::Error,
                         category: Category::Rule,
-                        message: "JOINs are not permitted in stream-sync transforms".to_string(),
+                        message: "JOINs are not permitted in pipeline transforms".to_string(),
                     }],
                     plan: None,
                 });

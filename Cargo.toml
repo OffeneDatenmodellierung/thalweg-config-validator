@@ -17,25 +17,21 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 thiserror = "1"
 
-# Pinned to match stream-sync/rust's resolved datafusion version exactly
-# (confirmed via `cargo tree | grep datafusion` in that repo: 54.1.0), so this
-# validator plans SQL against the same expression/type surface as the
-# runtime engine it's validating configs for.
+# Pinned to match the runtime's resolved datafusion version exactly
+# (54.1.0), so this validator plans SQL against the same expression/type
+# surface as the runtime engine it's validating configs for.
 datafusion = "54.1.0"
 sqlparser = "0.62"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
-# The real stream-sync UDF crate - registers the same pre-registered Rust
-# UDFs the runtime engine uses (get_json_object, avro decimal decode, sha2,
-# etc.), so this validator plans SQL against an identical function surface
-# rather than a hand-rolled stub.
+# The runtime's UDF crate - registers the same pre-registered Rust UDFs
+# the runtime engine uses (get_json_object, avro decimal decode, sha2,
+# etc.), so this validator plans SQL against an identical function
+# surface rather than a hand-rolled stub.
 #
-# PATH NEEDS CONFIRMING: this assumes ssync-udf lives at
-# ../stream-sync/rust/ssync-udf relative to this repo (sibling checkouts
-# under the same parent directory, matching the paths seen in your build
-# output: .../GIT/streaming/thalweg-config-validator and
-# .../GIT/streaming/stream-sync). Adjust if the actual nesting differs -
-# e.g. if it's stream-sync/rust/crates/ssync-udf or similar.
+# Path assumes a sibling checkout of the runtime repo. Adjust the path
+# if your workspace layout differs; this is the only piece of the
+# validator that depends on the runtime source being present locally.
 ssync-udf = { path = "../stream-sync/rust/crates/ssync-udf" }
 
 [dev-dependencies]

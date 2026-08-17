@@ -3,7 +3,7 @@
 ## Overview
 
 A standalone Rust 1.94 binary crate that:
-1. Parses a stream-sync `config.yaml` (or `.toml`) containing a `transforms.base` block and a `subTransforms` list.
+1. Parses a streaming pipeline `config.yaml` (or `.toml`) containing a `transforms.base` block and a `subTransforms` list.
 2. Validates each transform's SQL file against the inferred upstream schema using DataFusion SQL planning.
 3. Traces column lineage from the raw/meta seed registry through every transform in execution order.
 4. Emits a per-table schema summary with validation status and a UI model for tab/banner rendering.
@@ -123,9 +123,9 @@ issue tracker / docs by the ID rather than by message text.
 **When it fires:** the config declares at least one `jsonExpandColumns`
 sub-transform *and* `batch.maxRecords > 1177`.
 
-**Why 1177:** the downstream stream-sync runtime's `explode_json_column`
-implementation builds output Utf8 `StringArray`s with i32 offsets. Under
-aggregation, the post-explode column bytes are approximately:
+**Why 1177:** the downstream runtime's JSON-array explode implementation
+builds output Utf8 `StringArray`s with i32 offsets. Under aggregation,
+the post-explode column bytes are approximately:
 
 ```
 input_rows × selections_per_record × 285 B
@@ -198,7 +198,7 @@ curves get one threshold, not several.
 
 ## Acceptance Criteria
 
-- [ ] Parses full config YAML (base + subTransforms) without stream-sync runtime dependency.
+- [ ] Parses full config YAML (base + subTransforms) without any runtime-service dependency (validation runs offline against config + SQL files).
 - [ ] Validates SQL files in transform execution order.
 - [ ] Enforces no-JOIN rule; syntax/missing-col errors surfaced with context.
 - [ ] `missingColumnMode: null_and_warn` downgrades to warning + NULL synth; does not hard-fail.

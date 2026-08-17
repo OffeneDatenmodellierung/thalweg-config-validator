@@ -422,9 +422,10 @@ Pipeline-level lints:
     Arithmetic: post-explode column bytes = input_rows ×
     selections_per_record × 285 B. At the upstream-safe ceiling of 6400
     selections/record, overflow starts at N > 2^31 / (6400 × 285) = 1177.
-    Underlying runtime issue: the stream-sync `explode_json_column`
-    implementation emits Utf8 arrays with i32 offsets; the durable fix
-    is LargeStringArray/i64 offsets or post-explode chunking.
+    Underlying runtime issue: the downstream runtime's JSON-array
+    explode implementation emits Utf8 arrays with i32 offsets; the
+    durable fix is LargeStringArray/i64 offsets or post-explode
+    chunking.
     Recommended cap until that ships: maxRecords ≤ 1177.
     Explode nodes: [markets_virtual].
     related nodes: markets_virtual

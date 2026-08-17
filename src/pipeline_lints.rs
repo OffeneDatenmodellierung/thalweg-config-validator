@@ -30,7 +30,7 @@ pub enum LintId {
     /// upstream-compliant records can build a post-`jsonExpandColumns`
     /// Arrow `StringArray` that exceeds the i32 offset ceiling
     /// (`i32::MAX` ≈ 2.147 GB), causing an unrecoverable OOM death
-    /// spiral in the downstream stream-sync runtime.
+    /// spiral in the downstream streaming runtime.
     ArrowI32FanoutRisk,
 }
 
@@ -179,10 +179,10 @@ fn check_arrow_i32_fanout_risk(
          Arithmetic: post-explode column bytes = input_rows × selections_per_record × 285 B. \
          At the upstream-safe ceiling of {sel_safe} selections/record, overflow starts at \
          N > 2^31 / ({sel_safe} × 285) = {safe}. \
-         Underlying runtime issue: the stream-sync `explode_json_column` implementation \
-         emits Utf8 arrays with i32 offsets; the durable fix is LargeStringArray/i64 \
-         offsets or post-explode chunking. Recommended cap until that ships: \
-         maxRecords ≤ {safe}. \
+         Underlying runtime issue: the downstream runtime's JSON-array explode \
+         implementation emits Utf8 arrays with i32 offsets; the durable fix is \
+         LargeStringArray/i64 offsets or post-explode chunking. Recommended cap \
+         until that ships: maxRecords ≤ {safe}. \
          Explode nodes: [{nodes}].",
         nodes = related.join(", "),
     );
@@ -420,8 +420,8 @@ mod tests {
         let report = run_pipeline_lints(&config);
         let msg = &report.findings[0].message;
         assert!(
-            msg.contains("explode_json_column"),
-            "missing runtime symbol reference: {msg}"
+            msg.contains("i32 offset"),
+            "missing runtime-failure-mode reference: {msg}"
         );
         assert!(
             msg.contains("upstream"),
@@ -431,6 +431,10 @@ mod tests {
         assert!(
             msg.contains("jsonExpandColumns"),
             "missing failure-mode name: {msg}"
+        );
+        assert!(
+            msg.contains("LargeStringArray"),
+            "missing durable-fix reference: {msg}"
         );
     }
 

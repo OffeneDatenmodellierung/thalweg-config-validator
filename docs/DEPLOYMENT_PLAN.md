@@ -2,7 +2,7 @@
 
 ## Phase 0 — Contract Freeze (Day 1)
 
-- Extract config YAML structure from live stream-sync deployment.
+- Extract config YAML structure from a live pipeline deployment.
 - Snapshot raw/meta seed column registry.
 - Export representative SQL transform files (sanitised, no production data).
 - Freeze these as test fixtures under `tests/fixtures/`.
@@ -47,4 +47,4 @@
 
 ## Rollback
 
-This is a standalone validator binary — no runtime coupling to stream-sync. Rollback = deleting or not running the binary. No migrations, no schema changes, no service dependencies.
+This is a standalone validator binary — no coupling to the downstream runtime it validates configs for. Rollback = deleting or not running the binary. No migrations, no schema changes, no service dependencies.

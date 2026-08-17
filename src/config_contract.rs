@@ -1,4 +1,4 @@
-//! Canonical in-memory model for a stream-sync pipeline config.
+//! Canonical in-memory model for a streaming-pipeline config.
 //!
 //! One struct tree serves YAML, JSON, and TOML. YAML/JSON use camelCase field
 //! names (`#[serde(rename_all = "camelCase")]`); TOML uses snake_case, which
@@ -98,8 +98,8 @@ pub struct DropRule {
 
 /// Sink lanes are parsed so the config round-trips without error, but per
 /// the v1 scope decision, they do NOT feed schema_emitter/ui_model banner
-/// logic - engine-per-table resolution (zerobus vs postgres) is out of
-/// scope until explicitly requested.
+/// logic - engine-per-table resolution (per-backend DDL dialects) is out
+/// of scope until explicitly requested.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SinkConfig {
