@@ -18,9 +18,10 @@ A standalone Rust 1.94 binary crate that:
 | `seed_registry` | Owns the canonical raw/meta column table (all `_ssync_*` and `_raw_*` columns) with types and descriptions |
 | `sql_validator` | DataFusion parse + logical plan check per SQL file; reports syntax errors, missing-column refs, and disallowed constructs (joins, unsupported functions) |
 | `lineage_engine` | Propagates column provenance through the transform DAG; marks columns untraceable when origin cannot be resolved |
+| `pipeline_lints` | Config-wide invariants that cross the subTransforms × batch boundary (e.g. batch-sizing vs. jsonExpandColumns fanout-overflow risk). Pure functions of the parsed config — no I/O, no SQL planning. |
 | `schema_emitter` | Builds the final inferred schema per output table; generates CREATE DDL text |
 | `ui_model` | Produces the tab/banner/toggle view model consumed by the rendering layer |
-| `reporter` | Writes the summary JSON/table output to stdout or file |
+| `reporter` | Writes the summary JSON/table output to stdout or file, including pipeline-level lints above per-table findings |
 
 ---
 
@@ -104,6 +105,76 @@ All transforms inherit the following columns as valid lineage origins.
    d. A DataFusion SQL expression entirely composed of traceable inputs.
 2. If a column cannot be traced → mark column **RED** in UI; table banner turns **RED**.
 3. Columns from `jsonExpandColumns` synthetic expansion are traceable iff the source JSON column is itself traceable.
+
+---
+
+## Pipeline-Level Lints
+
+Invariants that live above any single transform's SQL and cross the
+`subTransforms` × `batch` boundary are surfaced as pipeline-level
+findings, rendered above the per-table blocks in the human-readable
+report and under a top-level `pipeline_lints` array in the JSON report.
+
+Each lint carries a stable kebab-case `id` so operators can grep the
+issue tracker / docs by the ID rather than by message text.
+
+### `arrow-i32-fanout-risk` (severity: `warning`)
+
+**When it fires:** the config declares at least one `jsonExpandColumns`
+sub-transform *and* `batch.maxRecords > 1177`.
+
+**Why 1177:** stream-sync's `explode_json_column` builds output Utf8
+`StringArray`s with i32 offsets. Under aggregation, the post-explode
+`selections` column bytes are approximately:
+
+```
+input_rows × selections_per_record × 285 B
+```
+
+Upstream (Event State → AWS Keyspaces) publisher contract caps refresh
+messages at ≤6 400 selections/event under the "safe" band. At that
+ceiling and 285 B/selection, overflow of Arrow's i32 offset (`i32::MAX`
+≈ 2 GB) starts at:
+
+```
+N > 2^31 / (6 400 × 285) = 1 177 records
+```
+
+Any batch larger than this can OOM the pod without any upstream
+contract violation — no benign traffic mix saves it.
+
+**Framework issue:** [stream-sync #367](https://github.com/Flutter-Global/stream-sync/issues/367).
+The durable fix is `LargeStringArray` with i64 offsets or post-explode
+chunking on `RecordBatch` byte size; until that ships this lint is the
+preflight defence against re-introducing the trading-dm-inbound-nxt
+incident of 2026-08-17.
+
+**Provenance in code:**
+[`pipeline_lints::ArrowI32Overflow`](../src/pipeline_lints.rs) carries
+the four inputs (upstream selections/record ceiling, per-selection byte
+size, Arrow i32 offset ceiling, derived threshold) as associated
+constants with unit-test coverage guarding drift between the derivation
+comment and the constant value.
+
+### Severity policy
+
+- `warning` — the finding does **not** change `overall_status` from
+  `green` to `red` and does **not** cause the CLI to exit non-zero.
+  Suitable for known framework workarounds where the config is
+  legitimate at deploy time but should be revisited when the framework
+  fix lands.
+- `error` — the finding **does** turn `overall_status` red and **does**
+  cause a non-zero exit. Reserved for pipeline-wide invariants where
+  no downstream mitigation applies (e.g. duplicate `cleanTable` across
+  sub_transforms — not yet implemented; documented here as the
+  reference case for the severity split).
+
+Adding a new lint: implement the check as a private function inside
+`src/pipeline_lints.rs` that pushes to `&mut Vec<PipelineFinding>`,
+add a new `LintId` variant, invoke it from `run_pipeline_lints`, and
+write a unit test per firing / non-firing case. Do **not** invent tier
+boundaries that aren't grounded in the arithmetic — monotonic risk
+curves get one threshold, not several.
 
 ---
 

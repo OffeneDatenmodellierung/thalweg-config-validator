@@ -6,6 +6,8 @@ Column lineage is traced from a canonical raw/meta seed registry (all `_ssync_*`
 
 The validator emits a per-table schema summary with green/red/virtual status banners, a column-level lineage grid, generated CREATE DDL text, and a structured JSON report. See the docs below for the full contract, phased delivery plan, and worked examples.
 
+On top of per-transform validation, the tool also runs a small set of **pipeline-level lints** — invariants that span the whole config (e.g. `batch.maxRecords` sizing vs. `jsonExpandColumns` fanout-overflow risk against Arrow's i32 offset ceiling). These are pure functions of the parsed config (no I/O, no SQL planning) and surface above the per-table blocks with stable kebab-case IDs like `arrow-i32-fanout-risk`, so operators can grep the framework issue tracker or docs by ID rather than by message text. See the *Pipeline-Level Lints* section of `docs/DELIVERABLES.md` for the current catalog and the severity policy.
+
 ## Contents
 
 - [`docs/DELIVERABLES.md`](docs/DELIVERABLES.md) — module breakdown, full config contract, seed registry, lineage rules, UI model contract, and acceptance criteria
