@@ -93,12 +93,12 @@ fn render_pipeline_lints(pipeline: &PipelineLintReport, color: bool, out: &mut S
     let _ = writeln!(out, "{header}");
     for f in &pipeline.findings {
         // Each pipeline finding carries its own stable LintId — surface
-        // it so operators can grep the issue tracker / docs by that ID
-        // rather than by message text (which may be reworded over time).
-        let id_slug = serde_json::to_value(f.id)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_else(|| "unknown".to_string());
+        // its slug directly so operators can grep the issue tracker /
+        // docs by that ID rather than by message text (which may be
+        // reworded over time). Anchored to `LintId::slug()` rather than
+        // to the serde representation so the CLI tag can't silently
+        // degrade if the JSON serialisation is ever changed.
+        let id_slug = f.id.slug();
         let tag = colorize(
             &format!("[{}/{}]", pipeline_severity_label(f.severity), id_slug),
             pipeline_severity_color(f.severity),

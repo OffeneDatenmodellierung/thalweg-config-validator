@@ -34,6 +34,22 @@ pub enum LintId {
     ArrowI32FanoutRisk,
 }
 
+impl LintId {
+    /// Stable operator-facing slug for this lint ID.
+    ///
+    /// Kept as a hand-rolled match rather than derived from the serde
+    /// representation so that the CLI's `[warning/<slug>]` tag and the
+    /// JSON report's `id` field are anchored to two independent sources
+    /// of truth and a change to one requires a matching change to the
+    /// other. This is a stable operator/CI grep target — renaming a
+    /// variant is a breaking change.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            LintId::ArrowI32FanoutRisk => "arrow-i32-fanout-risk",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PipelineSeverity {
@@ -170,15 +186,16 @@ fn check_arrow_i32_fanout_risk(
 
     let related = explode_nodes(sub_transforms);
     let sel_safe = ArrowI32Overflow::UPSTREAM_SAFE_SELECTIONS_PER_RECORD;
+    let sel_bytes = ArrowI32Overflow::SELECTION_BYTES;
 
     let message = format!(
         "batch.maxRecords={n} is above the {safe}-record threshold at which a batch of \
          upstream-compliant records can overflow Arrow's i32 offset ceiling \
          post-jsonExpandColumns. \
          \n\
-         Arithmetic: post-explode column bytes = input_rows × selections_per_record × 285 B. \
+         Arithmetic: post-explode column bytes = input_rows × selections_per_record × {sel_bytes} B. \
          At the upstream-safe ceiling of {sel_safe} selections/record, overflow starts at \
-         N > 2^31 / ({sel_safe} × 285) = {safe}. \
+         N > 2^31 / ({sel_safe} × {sel_bytes}) = {safe}. \
          Underlying runtime issue: the downstream runtime's JSON-array explode \
          implementation emits Utf8 arrays with i32 offsets; the durable fix is \
          LargeStringArray/i64 offsets or post-explode chunking. Recommended cap \
@@ -218,6 +235,32 @@ mod tests {
     use crate::config_contract::{
         BatchConfig, JsonExpandColumn, PipelineConfig, PrimaryTransform, SubTransform,
     };
+
+    /// Guards the two operator-facing surfaces — the CLI `[warning/<slug>]`
+    /// tag (via `LintId::slug()`) and the JSON `id` field (via the serde
+    /// kebab-case rename) — against silent drift. Renaming or adding a
+    /// variant requires updating both, and this test forces that.
+    //
+    // The single-element loop is intentional: adding a `LintId` variant
+    // extends the array and the parity check picks it up for free. Left
+    // as a loop rather than a bare statement so a future contributor
+    // adding a second variant doesn't have to restructure the test.
+    #[test]
+    #[allow(clippy::single_element_loop)]
+    fn lint_id_slug_matches_serde_representation() {
+        for id in [LintId::ArrowI32FanoutRisk] {
+            let serde_slug = serde_json::to_value(id)
+                .expect("LintId serialises to a JSON string")
+                .as_str()
+                .expect("LintId serialises to a JSON string")
+                .to_string();
+            assert_eq!(
+                id.slug(),
+                serde_slug,
+                "LintId::slug() must match the serde kebab-case representation for {id:?}"
+            );
+        }
+    }
 
     fn tf(
         name: &str,
