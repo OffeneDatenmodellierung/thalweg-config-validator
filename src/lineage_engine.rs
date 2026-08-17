@@ -22,9 +22,7 @@
 
 use crate::config_contract::{PipelineConfig, PrimaryTransform, SubTransform};
 use crate::seed_registry;
-use crate::sql_validator::{
-    parse_arrow_type, validate_transform_sql, Finding, UpstreamTable,
-};
+use crate::sql_validator::{parse_arrow_type, validate_transform_sql, Finding, UpstreamTable};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::logical_expr::{Expr, LogicalPlan};
 use std::collections::{HashMap, HashSet};
@@ -33,7 +31,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 /// Real configs express `sqlFile` as an absolute container-mount path (e.g.
-/// `/transforms/gpd_base_prep.sql`, matching a ConfigMap mount at
+/// `/transforms/base_prep.sql`, matching a ConfigMap mount at
 /// `/transforms`), not a path relative to any host directory. `Path::join`
 /// treats an absolute second argument as replacing the base entirely rather
 /// than appending to it - so joining `--transforms-dir` with an absolute
@@ -468,8 +466,8 @@ mod tests {
     fn resolve_sql_path_uses_basename_for_absolute_container_paths() {
         let dir = Path::new("/host/transforms");
         assert_eq!(
-            resolve_sql_path(dir, "/transforms/gpd_base_prep.sql"),
-            Path::new("/host/transforms/gpd_base_prep.sql")
+            resolve_sql_path(dir, "/transforms/base_prep.sql"),
+            Path::new("/host/transforms/base_prep.sql")
         );
     }
 
@@ -477,8 +475,8 @@ mod tests {
     fn resolve_sql_path_joins_relative_paths_normally() {
         let dir = Path::new("/host/transforms");
         assert_eq!(
-            resolve_sql_path(dir, "gpd_base_prep.sql"),
-            Path::new("/host/transforms/gpd_base_prep.sql")
+            resolve_sql_path(dir, "base_prep.sql"),
+            Path::new("/host/transforms/base_prep.sql")
         );
     }
 
@@ -489,12 +487,22 @@ mod tests {
         let nodes = build_lineage(&config, &fixtures_dir()).await.unwrap();
 
         let base = nodes.iter().find(|n| n.is_primary).unwrap();
-        assert_eq!(base.banner, Banner::Virtual, "findings: {:?}", base.findings);
+        assert_eq!(
+            base.banner,
+            Banner::Virtual,
+            "findings: {:?}",
+            base.findings
+        );
 
         for virtual_name in ["prepared", "items_virtual"] {
             let n = nodes.iter().find(|n| n.name == virtual_name).unwrap();
             assert!(n.is_virtual, "{virtual_name} should be virtual");
-            assert_eq!(n.banner, Banner::Virtual, "{virtual_name} findings: {:?}", n.findings);
+            assert_eq!(
+                n.banner,
+                Banner::Virtual,
+                "{virtual_name} findings: {:?}",
+                n.findings
+            );
         }
 
         for leaf_name in ["orders", "order_status", "items", "accounts", "extras"] {
@@ -517,11 +525,17 @@ mod tests {
 
         let nodes = build_lineage(&config, &fixtures_dir()).await.unwrap();
         let items = nodes.iter().find(|n| n.name == "items").unwrap();
-        assert_eq!(items.banner, Banner::Green, "findings: {:?}", items.findings);
+        assert_eq!(
+            items.banner,
+            Banner::Green,
+            "findings: {:?}",
+            items.findings
+        );
     }
 
     #[tokio::test]
-    async fn downstream_of_a_failed_node_gets_a_clear_blocked_finding_not_an_arbitrary_schema_error() {
+    async fn downstream_of_a_failed_node_gets_a_clear_blocked_finding_not_an_arbitrary_schema_error(
+    ) {
         let mut config =
             config_format::load(&fixtures_dir().join("valid_pipeline.toml"), None).unwrap();
 
@@ -544,10 +558,21 @@ mod tests {
         // Anything downstream of "prepared" should get ONE clear
         // "blocked by upstream" finding, not an arbitrary schema error
         // about its own SQL.
-        for downstream_name in ["orders", "order_status", "items_virtual", "accounts", "extras"] {
+        for downstream_name in [
+            "orders",
+            "order_status",
+            "items_virtual",
+            "accounts",
+            "extras",
+        ] {
             let n = nodes.iter().find(|n| n.name == downstream_name).unwrap();
             assert_eq!(n.banner, Banner::Red, "{downstream_name}");
-            assert_eq!(n.findings.len(), 1, "{downstream_name} findings: {:?}", n.findings);
+            assert_eq!(
+                n.findings.len(),
+                1,
+                "{downstream_name} findings: {:?}",
+                n.findings
+            );
             assert!(
                 n.findings[0].message.contains("Blocked"),
                 "{downstream_name} finding: {:?}",

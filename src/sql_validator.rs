@@ -47,10 +47,7 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     pub fn is_valid(&self) -> bool {
-        !self
-            .findings
-            .iter()
-            .any(|f| f.severity == Severity::Error)
+        !self.findings.iter().any(|f| f.severity == Severity::Error)
     }
 }
 
@@ -82,7 +79,7 @@ pub fn parse_arrow_type(raw: &str) -> DataType {
         "Int64" => DataType::Int64,
         "Float64" => DataType::Float64,
         "Timestamp(Nanosecond, None)" => DataType::Timestamp(TimeUnit::Nanosecond, None),
-        // schema_hint_columns uses these Databricks-ish type names directly.
+        // schema_hint_columns uses these SQL-ish type names directly.
         "STRING" => DataType::Utf8,
         "BIGINT" => DataType::Int64,
         "INT" => DataType::Int32,
@@ -102,7 +99,10 @@ fn tracing_unused_type_warning(_raw: &str) {
     // permissive default instead of blocking validation entirely.
 }
 
-fn register_tables(ctx: &SessionContext, tables: &[UpstreamTable]) -> Result<(), SqlValidatorError> {
+fn register_tables(
+    ctx: &SessionContext,
+    tables: &[UpstreamTable],
+) -> Result<(), SqlValidatorError> {
     for t in tables {
         let mem_table = MemTable::try_new(t.schema.clone(), vec![vec![]])
             .map_err(|e| SqlValidatorError::SchemaSetup(e.to_string()))?;
@@ -140,18 +140,17 @@ fn classify_plan_error(message: &str) -> Category {
     }
 }
 
-/// Registers the real stream-sync UDFs (get_json_object, avro decimal
-/// decode, sha2, etc.) via ssync-udf, so validation plans SQL against the
-/// identical function surface the runtime engine exposes - not a
-/// hand-rolled approximation of it.
+/// Registers the runtime's real UDFs (get_json_object, avro decimal
+/// decode, sha2, etc.) via the runtime's UDF crate, so validation plans
+/// SQL against the identical function surface the runtime engine
+/// exposes - not a hand-rolled approximation of it.
 ///
 /// `register_local_udfs` takes an optional salt (only consumed by the
-/// `crypto` feature's salted-hash UDF, which isn't enabled by ssync-udf's
-/// default features) - `None` here since validation never executes these
-/// functions anyway, only plans against them.
-fn register_stream_sync_udfs(ctx: &SessionContext) {
-    ssync_udf::register_local_udfs(ctx, None)
-        .expect("registering stream-sync UDFs should never fail");
+/// `crypto` feature's salted-hash UDF, which isn't enabled by the UDF
+/// crate's default features) - `None` here since validation never
+/// executes these functions anyway, only plans against them.
+fn register_runtime_udfs(ctx: &SessionContext) {
+    ssync_udf::register_local_udfs(ctx, None).expect("registering runtime UDFs should never fail");
 }
 
 /// Detects `SELECT *` / `SELECT t.*` via the raw sqlparser AST, BEFORE
@@ -160,7 +159,7 @@ fn register_stream_sync_udfs(ctx: &SessionContext) {
 /// afterward, so this check cannot happen post-plan the way the JOIN check
 /// does. Also checks inside WITH-clause CTE bodies, not just the outermost
 /// query - real transforms use CTEs for BINARY->VARCHAR staging (per the
-/// gpd_base_prep.sql pattern), so a wildcard hidden inside a CTE needs to be
+/// base_prep.sql pattern), so a wildcard hidden inside a CTE needs to be
 /// caught too. If sqlparser itself fails to parse the SQL, this returns
 /// false and lets DataFusion's own planner surface the real syntax error
 /// instead - don't want a parser disagreement between sqlparser and
@@ -226,7 +225,7 @@ pub async fn validate_transform_sql(
     }
 
     let ctx = SessionContext::new();
-    register_stream_sync_udfs(&ctx);
+    register_runtime_udfs(&ctx);
     register_tables(&ctx, upstream_tables)?;
 
     match ctx.sql(sql).await {
@@ -238,7 +237,7 @@ pub async fn validate_transform_sql(
                     findings: vec![Finding {
                         severity: Severity::Error,
                         category: Category::Rule,
-                        message: "JOINs are not permitted in stream-sync transforms".to_string(),
+                        message: "JOINs are not permitted in pipeline transforms".to_string(),
                     }],
                     plan: None,
                 });
@@ -336,7 +335,9 @@ mod tests {
     #[tokio::test]
     async fn valid_simple_sql_passes_clean() {
         let sql = std::fs::read_to_string(fixtures_dir().join("valid_simple.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(result.is_valid(), "findings: {:?}", result.findings);
         assert!(result.plan.is_some());
     }
@@ -344,9 +345,10 @@ mod tests {
     #[tokio::test]
     async fn wildcard_select_is_hard_error_caught_pre_plan() {
         let sql = std::fs::read_to_string(fixtures_dir().join("wildcard_violation.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
-            .await
-            .unwrap();
+        let result =
+            validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
+                .await
+                .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Rule);
         assert_eq!(result.findings[0].severity, Severity::Error);
@@ -356,9 +358,10 @@ mod tests {
     #[tokio::test]
     async fn join_is_hard_error_regardless_of_missing_column_mode() {
         let sql = std::fs::read_to_string(fixtures_dir().join("join_violation.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
-            .await
-            .unwrap();
+        let result =
+            validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
+                .await
+                .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Rule);
         assert_eq!(result.findings[0].severity, Severity::Error);
@@ -367,7 +370,9 @@ mod tests {
     #[tokio::test]
     async fn syntax_error_is_hard_error() {
         let sql = std::fs::read_to_string(fixtures_dir().join("syntax_error.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Syntax);
     }
@@ -375,7 +380,9 @@ mod tests {
     #[tokio::test]
     async fn missing_column_hard_fails_without_null_and_warn_mode() {
         let sql = std::fs::read_to_string(fixtures_dir().join("missing_column_ref.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(!result.is_valid());
         assert_eq!(result.findings[0].category, Category::Schema);
         assert_eq!(result.findings[0].severity, Severity::Error);
@@ -384,9 +391,10 @@ mod tests {
     #[tokio::test]
     async fn missing_column_downgrades_to_warning_under_null_and_warn_mode() {
         let sql = std::fs::read_to_string(fixtures_dir().join("missing_column_ref.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
-            .await
-            .unwrap();
+        let result =
+            validate_transform_sql(&sql, &upstream(), Some(MissingColumnMode::NullAndWarn))
+                .await
+                .unwrap();
         // Not a hard failure under this mode.
         assert!(result.is_valid());
         assert_eq!(result.findings[0].severity, Severity::Warning);
@@ -400,7 +408,9 @@ mod tests {
         // lineage_engine's job (Phase 2). Confirms this case is NOT
         // misclassified as a sql_validator error.
         let sql = std::fs::read_to_string(fixtures_dir().join("untraceable_column.sql")).unwrap();
-        let result = validate_transform_sql(&sql, &upstream(), None).await.unwrap();
+        let result = validate_transform_sql(&sql, &upstream(), None)
+            .await
+            .unwrap();
         assert!(result.is_valid(), "findings: {:?}", result.findings);
         assert!(result.plan.is_some());
     }

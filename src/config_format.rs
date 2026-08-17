@@ -164,7 +164,8 @@ mod tests {
             }
         });
 
-        let flat_config: PipelineConfig = serde_json::from_value(normalize_transform_shape(flat)).unwrap();
+        let flat_config: PipelineConfig =
+            serde_json::from_value(normalize_transform_shape(flat)).unwrap();
         let wrapped_config: PipelineConfig =
             serde_json::from_value(normalize_transform_shape(wrapped)).unwrap();
 

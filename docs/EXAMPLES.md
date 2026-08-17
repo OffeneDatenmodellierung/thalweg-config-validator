@@ -381,3 +381,81 @@ Derived columns (`carrier_normalized`, `shipment_count`, `first_shipment_date`, 
   }
 }
 ```
+
+## 11. Example Pipeline-Level Lint (Arrow i32 Fanout-Risk)
+
+Pipeline-level lints render above per-table blocks in the human-readable
+report and under a top-level `pipeline_lints` array in JSON. See
+[DELIVERABLES → Pipeline-Level Lints](./DELIVERABLES.md#pipeline-level-lints)
+for the full catalog.
+
+**Config input (excerpt):**
+
+```yaml
+subTransforms:
+  - name: markets_virtual
+    input: prepared
+    sqlFile: /transforms/markets_explode.sql
+    jsonExpandColumns:
+      - name: markets
+        fields: ["id", "name", "status"]
+  - name: markets
+    input: markets_virtual
+    sqlFile: /transforms/markets.sql
+    cleanTable: markets_clean
+
+batch:
+  maxWaitMs: 100
+  maxRecords: 3000        # ← above the 1177 fanout-overflow threshold
+  maxBytes: 20971520
+```
+
+**Human-readable output (excerpt):**
+
+```
+Pipeline validation: GREEN
+
+Pipeline-level lints:
+  - [warning/arrow-i32-fanout-risk] batch.maxRecords=3000 is above the
+    1177-record threshold at which a batch of upstream-compliant records
+    can overflow Arrow's i32 offset ceiling post-jsonExpandColumns.
+    Arithmetic: post-explode column bytes = input_rows ×
+    selections_per_record × 285 B. At the upstream-safe ceiling of 6400
+    selections/record, overflow starts at N > 2^31 / (6400 × 285) = 1177.
+    Underlying runtime issue: the downstream runtime's JSON-array
+    explode implementation emits Utf8 arrays with i32 offsets; the
+    durable fix is LargeStringArray/i64 offsets or post-explode
+    chunking.
+    Recommended cap until that ships: maxRecords ≤ 1177.
+    Explode nodes: [markets_virtual].
+    related nodes: markets_virtual
+
+[--] base (primary transform)
+    ...
+```
+
+**JSON output (excerpt):**
+
+```json
+{
+  "overall_status": "green",
+  "pipeline_lints": [
+    {
+      "id": "arrow-i32-fanout-risk",
+      "severity": "warning",
+      "message": "batch.maxRecords=3000 is above the 1177-record threshold...",
+      "related_nodes": ["markets_virtual"]
+    }
+  ],
+  "tables": [ /* ... per-table blocks ... */ ]
+}
+```
+
+**Note on severity:** the lint is a `warning`, not an `error`. The
+config is legitimate at deploy time; the finding is a preflight
+reminder that a known bug in the downstream runtime will bite this
+config's traffic profile under bursty replay. `overall_status` stays
+`green` and the CLI exits 0 — so CI/CD gates keep passing while the
+finding is surfaced to reviewers. When the underlying runtime fix
+ships and the lint is no longer relevant, remove it (or gate it on a
+runtime version constraint) rather than escalating to `error`.

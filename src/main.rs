@@ -1,6 +1,7 @@
 mod config_contract;
 mod config_format;
 mod lineage_engine;
+mod pipeline_lints;
 mod reporter;
 mod schema_emitter;
 mod seed_registry;
@@ -62,21 +63,29 @@ async fn main() -> Result<()> {
 
     let config = config_format::load(&cli.config, None)?;
 
+    // Pipeline-level lints run *before* DAG construction: they're pure
+    // functions of the parsed config (no SQL planning, no I/O), so they
+    // still fire even when a downstream SQL error would have blocked the
+    // per-table view. That lets a user with a broken SQL file also see a
+    // fanout-risk warning on the same run instead of only after they've
+    // fixed the SQL.
+    let pipeline_report = pipeline_lints::run_pipeline_lints(&config);
+
     let nodes = lineage_engine::build_lineage(&config, &cli.transforms_dir)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let tables = ui_model::build_report(&nodes);
-    let failed = reporter::is_red(&tables);
+    let failed = reporter::is_red(&tables) || pipeline_report.has_error();
 
     if cli.json {
-        reporter::print_json(&tables)?;
+        reporter::print_json(&tables, &pipeline_report)?;
     } else {
-        reporter::print_human_readable(&tables, should_colorize(cli.color));
+        reporter::print_human_readable(&tables, &pipeline_report, should_colorize(cli.color));
     }
 
     if let Some(path) = &cli.output {
-        reporter::write_json_to_file(&tables, path)?;
+        reporter::write_json_to_file(&tables, &pipeline_report, path)?;
     }
 
     if failed {
